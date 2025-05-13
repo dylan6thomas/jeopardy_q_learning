@@ -7,10 +7,15 @@ CHOOSE = 0
 ANSWER = 1
 DD = 2
 
+SMARTNESS = [0.9, 0.8, 0.7, 0.6, .43]
+DD_SMARTNESS = 1 # 0.65
+DAILY_DOUBLE_ODDS = [0.02, 0.06, 0.20, 0.32, 0.40] # Must sum to 1
+
+
 random.seed(42)
 
 class Player:
-    def __init__(self, pid, smartness=0.8, dd_smartness = 0.75):
+    def __init__(self, pid, smartness=[0.8, 0.8, 0.8, 0.8, 0.8], dd_smartness = 0.75):
         self.score = 0
         self.pid = pid
         self.smartness = smartness
@@ -24,10 +29,11 @@ class Player:
         return self.pid
     
 class Jeopardy:
-    def __init__(self, board_size, num_players, alpha, gamma, epsilon, decay):
+    def __init__(self, board_size, num_players, alpha, gamma, epsilon, decay, smartness, dd_smartness, daily_double_odds=DAILY_DOUBLE_ODDS):
         # Set up board
         self.board_size = board_size
-        self.board = np.ones((board_size, board_size))
+        self.board = np.ones((board_size, board_size + 1))
+        # self.board = np.ones((board_size, board_size))
 
         self.picks = np.zeros_like(self.board)
 
@@ -39,21 +45,35 @@ class Jeopardy:
         # Set up players
         self.players = []
         for pid in range(num_players):
-            self.players.append(Player(pid))
+            self.players.append(Player(pid, smartness=smartness, dd_smartness=dd_smartness))
 
         self.alpha = alpha # learning rate
         self.gamma = gamma # discount factor
         self.epsilon = epsilon # exploration rate
         self.decay = decay
         self.min_epsilon = 0.05
+        self.daily_double_odds = daily_double_odds
+        self.smartness = smartness
+        self.dd_smartness = dd_smartness
 
         self.q_table = defaultdict(lambda: 0)
 
         # daily double
+        row = 0
+        cdf = daily_double_odds[row]
+        p = random.random()
+        while cdf < 1:
+            if p < cdf:
+                break
+            row += 1
+            cdf += daily_double_odds[row]
+
         if random.random() > 0.9:
-            self.dd = (board_size-2, random.randint(0, board_size-1))
+            self.dd = (row, random.randint(0, board_size))
+            # self.dd = (board_size-2, random.randint(0, board_size - 1))
         else:
-            self.dd = (board_size-1, random.randint(0, board_size-1))
+            self.dd = (row, random.randint(0, board_size))
+            # self.dd = (board_size-1, random.randint(0, board_size - 1))
 
         self.action_type = CHOOSE
 
@@ -138,7 +158,7 @@ class Jeopardy:
                 if self.players[pid].score <= 0:
                     return 0
                 
-                choices = range(self.players[pid].score)
+                choices = range(self.players[pid].score + 1)
 
                 if(random.random() < self.epsilon):
                     return random.choice(choices)
@@ -281,7 +301,7 @@ class Jeopardy:
             new_q_value = (1 - self.alpha) * self.q_table[(state, choice[0])]
 
             if self.dd == choice:
-                # print("Daily Double Found!, Player ", pid, " has ", self.players[pid].score)
+                print("Daily Double Found!, Player ", pid, " has ", self.players[pid].score)
                 self.dd_found = True
 
                 self.action_type = DD
@@ -294,7 +314,7 @@ class Jeopardy:
                 state = next_state
 
                 wager = self.get_action_train(state, pid)
-                # print("Wagering ", wager)
+                print("Wagering ", wager)
                 if random.random() > self.players[pid].dd_smartness:
                     reward = -wager
                 else:
@@ -357,7 +377,7 @@ class Jeopardy:
 
                 else:
                     guesser = random.choice(wants_to_guess)
-                    if random.random() > guesser.smartness:
+                    if random.random() > guesser.smartness[choice[0]]:
                         reward = -potential_points
 
                         state = self.get_state(guesser.get_pid(), wrong_guesses=wrong_guesses)
@@ -399,7 +419,8 @@ class Jeopardy:
 
     def play_game(self):
         self.training = False
-        picks_left = self.board_size ** 2
+        picks_left = self.board_size * (self.board_size + 1)
+        # picks_left = self.board_size ** 2
 
         pid = random.randint(0, len(self.players) - 1)
 
@@ -483,7 +504,7 @@ class Jeopardy:
 
                 else:
                     guesser = random.choice(wants_to_guess)
-                    if random.random() > guesser.smartness:
+                    if random.random() > guesser.smartness[choice[0]]:
                         reward = -potential_points
 
                         state = self.get_state(guesser.get_pid(), wrong_guesses=wrong_guesses)
@@ -519,8 +540,12 @@ class Jeopardy:
             
     def reset_game(self):
 
+        # Set up board
         self.board_size = self.board_size
-        self.board = np.ones((self.board_size, self.board_size))
+        self.board = np.ones((self.board_size, self.board_size + 1))
+        # self.board = np.ones((self.board_size, self.board_size))
+
+        self.num_players = self.num_players
 
         for row_num in range(self.board_size):
             self.board[row_num,:] *= (row_num + 1)
@@ -528,13 +553,24 @@ class Jeopardy:
         # Set up players
         self.players = []
         for pid in range(self.num_players):
-            self.players.append(Player(pid))
+            self.players.append(Player(pid, smartness=self.smartness, dd_smartness=self.dd_smartness))
 
         # daily double
+        row = 0
+        cdf = self.daily_double_odds[row]
+        p = random.random()
+        while cdf < 1:
+            if p < cdf:
+                break
+            row += 1
+            cdf += self.daily_double_odds[row]
+
         if random.random() > 0.9:
-            self.dd = (self.board_size-2, random.randint(0, self.board_size-1))
+            self.dd = (row, random.randint(0, self.board_size))
+            # self.dd = (self.board_size-2, random.randint(0, self.board_size - 1))
         else:
-            self.dd = (self.board_size-1, random.randint(0, self.board_size-1))
+            self.dd = (row, random.randint(0, self.board_size))
+            # self.dd = (self.board_size-1, random.randint(0, self.board_size - 1))
 
         self.action_type = CHOOSE
 
@@ -542,7 +578,7 @@ class Jeopardy:
 
         self.training = True
 
-        self.epsilon = max(self.min_epsilon, self.epsilon * self.decay)
+        self.epsilon = self.epsilon * self.decay
         
 
     def train(self, num_games=500):
@@ -557,10 +593,9 @@ class Jeopardy:
             self.reset_game()
 
 
-jeopardy = Jeopardy(board_size=5, num_players=3, alpha=0.3, gamma=0.9, epsilon=1.0, decay=(1 - 2e-4))
-jeopardy.train(20000)
+jeopardy = Jeopardy(board_size=5, num_players=3, alpha=0.3, gamma=0.9, epsilon=1.0, decay=(1 - 3e-4), smartness=SMARTNESS, dd_smartness=DD_SMARTNESS)
+jeopardy.train(10000)
 games = 1000
-print(jeopardy.q_table)
 for i in range(games):
     jeopardy.play_game()
     jeopardy.reset_game()
