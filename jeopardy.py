@@ -8,7 +8,7 @@ ANSWER = 1
 DD = 2
 
 SMARTNESS = [0.9, 0.8, 0.7, 0.6, .43]
-DD_SMARTNESS = 1 # 0.65
+DD_SMARTNESS = .65 # 0.65
 DAILY_DOUBLE_ODDS = [0.02, 0.06, 0.20, 0.32, 0.40] # Must sum to 1
 
 
@@ -221,7 +221,7 @@ class Jeopardy:
                 if self.players[pid].score <= 0:
                     return 0
                 
-                choices = range(self.players[pid].score)
+                choices = range(self.players[pid].score + 1)
 
                 q_values = [self.q_table[(state, choice)] for choice in choices]
 
@@ -268,7 +268,7 @@ class Jeopardy:
             if self.players[pid].score <= 0:
                 return self.q_table[(state,0)]
             
-            choices = range(self.players[pid].score)
+            choices = range(self.players[pid].score + 1)
 
             q_values = [self.q_table[(state, choice)] for choice in choices]
 
