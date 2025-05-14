@@ -6,10 +6,13 @@ import matplotlib.pyplot as plt
 CHOOSE = 0
 ANSWER = 1
 DD = 2
+GAMEOVER = 3
 
 SMARTNESS = [0.9, 0.8, 0.7, 0.6, .43]
-DD_SMARTNESS = .65 # 0.65
+DD_SMARTNESS = 0.65 # 0.65
 DAILY_DOUBLE_ODDS = [0.02, 0.06, 0.20, 0.32, 0.40] # Must sum to 1
+
+# TODO: Add reward for winning the game
 
 
 random.seed(42)
@@ -20,6 +23,7 @@ class Player:
         self.pid = pid
         self.smartness = smartness
         self.dd_smartness = dd_smartness
+        self.last_state_action = None
 
     def change_score(self, score_change):
         self.score += int(score_change)
@@ -27,6 +31,9 @@ class Player:
 
     def get_pid(self):
         return self.pid
+    
+    def set_last_state_action(self, state_action):
+        self.last_state_action = state_action
     
 class Jeopardy:
     def __init__(self, board_size, num_players, alpha, gamma, epsilon, decay, smartness, dd_smartness, daily_double_odds=DAILY_DOUBLE_ODDS):
@@ -55,6 +62,7 @@ class Jeopardy:
         self.daily_double_odds = daily_double_odds
         self.smartness = smartness
         self.dd_smartness = dd_smartness
+        self.average_scores = []
 
         self.q_table = defaultdict(lambda: 0)
 
@@ -294,6 +302,8 @@ class Jeopardy:
 
             potential_points = self.board[choice[0], choice[1]]
             self.board[choice[0], choice[1]] = 0
+
+            self.players[pid].set_last_state_action((state, choice[0]))
             
 
             reward = 0
@@ -314,6 +324,8 @@ class Jeopardy:
                 state = next_state
 
                 wager = self.get_action_train(state, pid)
+                self.players[pid].set_last_state_action((state, wager))
+
                 print("Wagering ", wager)
                 if random.random() > self.players[pid].dd_smartness:
                     reward = -wager
@@ -323,6 +335,7 @@ class Jeopardy:
                 self.players[pid].change_score(reward)
 
                 new_q_value = (1 - self.alpha) * self.q_table[(state, wager)]
+
                 self.action_type = CHOOSE
                 next_state = self.get_state(pid)
                 new_q_value += self.alpha * (reward + self.gamma * self.get_best_q_value(next_state, pid))
@@ -358,12 +371,14 @@ class Jeopardy:
                 for player in not_want_to_guess:
 
                         state = self.get_state(player.get_pid(), wrong_guesses=wrong_guesses)
+                        player.set_last_state_action((state, 0))
+
                         new_q_value = (1 - self.alpha) * self.q_table[(state, 0)]
 
                         self.action_type = CHOOSE
 
                         next_state = self.get_state(player.get_pid())
-                        new_q_value += self.alpha * (reward + self.gamma * self.get_best_q_value(next_state, player.get_pid()))
+                        new_q_value += self.alpha * (0 + self.gamma * self.get_best_q_value(next_state, player.get_pid()))
 
                         self.q_table[(state, 0)] = new_q_value
 
@@ -381,6 +396,8 @@ class Jeopardy:
                         reward = -potential_points
 
                         state = self.get_state(guesser.get_pid(), wrong_guesses=wrong_guesses)
+                        guesser.set_last_state_action((state, 1))
+
                         new_q_value = (1 - self.alpha) * self.q_table[(state, 1)] # 1 is the action of answering
 
                         wrong_guesses+=1
@@ -401,6 +418,8 @@ class Jeopardy:
                         reward = potential_points
 
                         state = self.get_state(guesser.get_pid(), wrong_guesses=wrong_guesses)
+                        guesser.set_last_state_action((state, 1))
+
                         new_q_value = (1 - self.alpha) * self.q_table[(state, 1)]
 
                         self.action_type = CHOOSE
@@ -416,6 +435,25 @@ class Jeopardy:
                         state = next_state
 
                         break
+            # if not self.board.any(): # board is empty, game over
+
+        scores = [p.score for p in self.players]
+        max_score = max(scores)
+        winners = [p for p in self.players if p.score == max_score]
+
+        WIN_REWARD = 100
+        LOSS_REWARD = -10
+
+        # Give final rewards and update Q-table
+        for p in self.players:
+            reward = WIN_REWARD if p in winners else LOSS_REWARD
+
+            state_action = p.last_state_action
+            
+            if state_action is not None:
+                self.q_table[state_action] += self.alpha * (reward)
+
+
 
     def play_game(self):
         self.training = False
@@ -578,7 +616,7 @@ class Jeopardy:
 
         self.training = True
 
-        self.epsilon = self.epsilon * self.decay
+        self.epsilon = max(self.min_epsilon, self.epsilon * self.decay)
         
 
     def train(self, num_games=500):
