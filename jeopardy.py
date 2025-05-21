@@ -89,6 +89,9 @@ class Jeopardy:
 
         self.training = True
 
+        self.scores_over_time = [[] for _ in range(num_players)]
+        self.epsilon_history = []
+
     def get_state(self, pid, wrong_guesses=0):
         
         board_state = tuple(int(self.board[i,:].sum()/(i+1)) for i in range(self.board_size))
@@ -455,7 +458,7 @@ class Jeopardy:
 
 
 
-    def play_game(self):
+    def play_game(self, track=False):
         self.training = False
         picks_left = self.board_size * (self.board_size + 1)
         # picks_left = self.board_size ** 2
@@ -575,6 +578,10 @@ class Jeopardy:
 
                         break
         self.training = True
+
+        if track:
+            for i, p in enumerate(self.players):
+                self.scores_over_time[i].append(p.score)
             
     def reset_game(self):
 
@@ -617,6 +624,7 @@ class Jeopardy:
         self.training = True
 
         self.epsilon = max(self.min_epsilon, self.epsilon * self.decay)
+        self.epsilon_history.append(self.epsilon)
         
 
     def train(self, num_games=500):
@@ -635,7 +643,10 @@ jeopardy = Jeopardy(board_size=5, num_players=3, alpha=0.3, gamma=0.9, epsilon=1
 jeopardy.train(10000)
 games = 1000
 for i in range(games):
-    jeopardy.play_game()
+    if i % 100 == 0:
+        jeopardy.play_game(track=True)
+    else:
+        jeopardy.play_game()
     jeopardy.reset_game()
 print(jeopardy.picks/games)
 
@@ -660,7 +671,23 @@ plt.yticks(range((jeopardy.picks/games).shape[0]))
 plt.tight_layout()
 plt.show()
 
-            
+
+plt.figure()
+plt.plot(jeopardy.epsilon_history)
+plt.title("Epsilon Decay Over Training")
+plt.xlabel("Training Game #")
+plt.ylabel("Epsilon")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+for i, scores in enumerate(jeopardy.scores_over_time):
+    plt.plot(scores, label=f"Player {i}")
+plt.xlabel("Game #")
+plt.ylabel("Final Score")
+plt.title("Player Scores Over Time")
+plt.legend()
+plt.show()       
                         
                     
 
